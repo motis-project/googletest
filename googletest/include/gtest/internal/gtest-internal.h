@@ -1240,7 +1240,8 @@ class NativeArray {
 #define GTEST_TEST_(test_case_name, test_name, parent_class, parent_id)\
 class GTEST_TEST_CLASS_NAME_(test_case_name, test_name) : public parent_class {\
  public:\
-  GTEST_TEST_CLASS_NAME_(test_case_name, test_name)() {}\
+  GTEST_TEST_CLASS_NAME_(test_case_name, test_name)() = default;\
+  ~GTEST_TEST_CLASS_NAME_(test_case_name, test_name)() = default;\
  private:\
   virtual void TestBody();\
   static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_;\
