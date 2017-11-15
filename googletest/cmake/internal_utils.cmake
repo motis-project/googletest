@@ -126,6 +126,10 @@ macro(config_compiler_and_linker)
     set(cxx_no_rtti_flags "")
   endif()
 
+  if (NOT MSVC)
+    set(cxx_base_flags "${cxx_base_flags} -std=c++17")
+  endif()
+
   # The pthreads library is available and allowed?
   if (DEFINED GTEST_HAS_PTHREAD)
     set(GTEST_HAS_PTHREAD_MACRO "-DGTEST_HAS_PTHREAD=1")
