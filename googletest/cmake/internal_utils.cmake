@@ -127,7 +127,7 @@ macro(config_compiler_and_linker)
   endif()
 
   if (NOT MSVC)
-    set(cxx_base_flags "${cxx_base_flags} -std=c++17")
+    set(cxx_base_flags "${cxx_base_flags} -std=c++14")
   endif()
 
   # The pthreads library is available and allowed?
