@@ -683,7 +683,7 @@ typedef struct _RTL_CRITICAL_SECTION GTEST_CRITICAL_SECTION;
 #define GTEST_DISALLOW_COPY_AND_ASSIGN_(type) \
   type(type const&) = delete;                 \
   type(type&&) noexcept = delete;             \
-  type& operator=(type const&) = delete       \
+  type& operator=(type const&) = delete;      \
   type& operator=(type&&) noexcept = delete
 
 // A macro to disallow move operator=
