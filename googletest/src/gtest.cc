@@ -35,7 +35,6 @@
 #include "gtest/gtest-spi.h"
 
 #include <ctype.h>
-#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,6 +43,8 @@
 #include <wctype.h>
 
 #include <algorithm>
+#include <chrono>  // NOLINT
+#include <cmath>
 #include <cstdint>
 #include <iomanip>
 #include <limits>
@@ -54,8 +55,6 @@
 #include <vector>
 
 #if GTEST_OS_LINUX
-
-# define GTEST_HAS_GETTIMEOFDAY_ 1
 
 # include <fcntl.h>  // NOLINT
 # include <limits.h>  // NOLINT
@@ -68,7 +67,6 @@
 # include <string>
 
 #elif GTEST_OS_ZOS
-# define GTEST_HAS_GETTIMEOFDAY_ 1
 # include <sys/time.h>  // NOLINT
 
 // On z/OS we additionally need strings.h for strcasecmp.
@@ -94,15 +92,10 @@
 # include <sys/stat.h>  // NOLINT
 
 # if GTEST_OS_WINDOWS_MINGW
-// MinGW has gettimeofday() but not _ftime64().
-#  define GTEST_HAS_GETTIMEOFDAY_ 1
 #  include <sys/time.h>  // NOLINT
 # endif  // GTEST_OS_WINDOWS_MINGW
 
 #else
-
-// Assume other platforms have gettimeofday().
-# define GTEST_HAS_GETTIMEOFDAY_ 1
 
 // cpplint thinks that the header is already included, so we want to
 // silence it.
@@ -432,8 +425,8 @@ namespace {
 // inserted to report ether an error or a log message.
 //
 // This configuration bit will likely be removed at some point.
-constexpr bool kErrorOnUninstantiatedParameterizedTest = false;
-constexpr bool kErrorOnUninstantiatedTypeParameterizedTest = false;
+constexpr bool kErrorOnUninstantiatedParameterizedTest = true;
+constexpr bool kErrorOnUninstantiatedTypeParameterizedTest = true;
 
 // A test that fails at a given file/line location with a given message.
 class FailureTest : public Test {
@@ -497,7 +490,7 @@ void InsertSyntheticTestCase(const std::string& name, CodeLocation location,
       "removed but the rest got left behind.";
 
   std::string message =
-      "Paramaterized test suite " + name +
+      "Parameterized test suite " + name +
       (has_test_p ? kMissingInstantiation : kMissingTestCase) +
       "\n\n"
       "To suppress this error for this test suite, insert the following line "
@@ -505,7 +498,7 @@ void InsertSyntheticTestCase(const std::string& name, CodeLocation location,
       "\n\n"
       "GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(" + name + ");";
 
-  std::string full_name = "UninstantiatedParamaterizedTestSuite<" + name + ">";
+  std::string full_name = "UninstantiatedParameterizedTestSuite<" + name + ">";
   RegisterTest(  //
       "GoogleTestVerification", full_name.c_str(),
       nullptr,  // No type parameter.
@@ -552,7 +545,7 @@ void TypeParameterizedTestSuiteRegistry::CheckForInstantiations() {
     if (ignored.find(testcase.first) != ignored.end()) continue;
 
     std::string message =
-        "Type paramaterized test suite " + testcase.first +
+        "Type parameterized test suite " + testcase.first +
         " is defined via REGISTER_TYPED_TEST_SUITE_P, but never instantiated "
         "via INSTANTIATE_TYPED_TEST_SUITE_P. None of the test cases will run."
         "\n\n"
@@ -562,13 +555,13 @@ void TypeParameterizedTestSuiteRegistry::CheckForInstantiations() {
         "utilities.)"
         "\n\n"
         "To suppress this error for this test suite, insert the following line "
-        "(in a non-header) in the namespace it is definedin in:"
+        "(in a non-header) in the namespace it is defined in:"
         "\n\n"
         "GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(" +
         testcase.first + ");";
 
     std::string full_name =
-        "UninstantiatedTypeParamaterizedTestSuite<" + testcase.first + ">";
+        "UninstantiatedTypeParameterizedTestSuite<" + testcase.first + ">";
     RegisterTest(  //
         "GoogleTestVerification", full_name.c_str(),
         nullptr,  // No type parameter.
@@ -1005,42 +998,10 @@ std::string UnitTestImpl::CurrentOsStackTraceExceptTop(int skip_count) {
 
 // Returns the current time in milliseconds.
 TimeInMillis GetTimeInMillis() {
-#if GTEST_OS_WINDOWS_MOBILE || defined(__BORLANDC__)
-  // Difference between 1970-01-01 and 1601-01-01 in milliseconds.
-  // http://analogous.blogspot.com/2005/04/epoch.html
-  const TimeInMillis kJavaEpochToWinFileTimeDelta =
-    static_cast<TimeInMillis>(116444736UL) * 100000UL;
-  const DWORD kTenthMicrosInMilliSecond = 10000;
-
-  SYSTEMTIME now_systime;
-  FILETIME now_filetime;
-  ULARGE_INTEGER now_int64;
-  GetSystemTime(&now_systime);
-  if (SystemTimeToFileTime(&now_systime, &now_filetime)) {
-    now_int64.LowPart = now_filetime.dwLowDateTime;
-    now_int64.HighPart = now_filetime.dwHighDateTime;
-    now_int64.QuadPart = (now_int64.QuadPart / kTenthMicrosInMilliSecond) -
-      kJavaEpochToWinFileTimeDelta;
-    return now_int64.QuadPart;
-  }
-  return 0;
-#elif GTEST_OS_WINDOWS && !GTEST_HAS_GETTIMEOFDAY_
-  __timeb64 now;
-
-  // MSVC 8 deprecates _ftime64(), so we want to suppress warning 4996
-  // (deprecated function) there.
-  GTEST_DISABLE_MSC_DEPRECATED_PUSH_()
-  _ftime64(&now);
-  GTEST_DISABLE_MSC_DEPRECATED_POP_()
-
-  return static_cast<TimeInMillis>(now.time) * 1000 + now.millitm;
-#elif GTEST_HAS_GETTIMEOFDAY_
-  struct timeval now;
-  gettimeofday(&now, nullptr);
-  return static_cast<TimeInMillis>(now.tv_sec) * 1000 + now.tv_usec / 1000;
-#else
-# error "Don't know how to get the current time on your system."
-#endif
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::system_clock::now() -
+             std::chrono::system_clock::from_time_t(0))
+      .count();
 }
 
 // Utilities
@@ -1555,6 +1516,31 @@ AssertionResult DoubleNearPredFormat(const char* expr1,
   const double diff = fabs(val1 - val2);
   if (diff <= abs_error) return AssertionSuccess();
 
+  // Find the value which is closest to zero.
+  const double min_abs = std::min(fabs(val1), fabs(val2));
+  // Find the distance to the next double from that value.
+  const double epsilon =
+      nextafter(min_abs, std::numeric_limits<double>::infinity()) - min_abs;
+  // Detect the case where abs_error is so small that EXPECT_NEAR is
+  // effectively the same as EXPECT_EQUAL, and give an informative error
+  // message so that the situation can be more easily understood without
+  // requiring exotic floating-point knowledge.
+  // Don't do an epsilon check if abs_error is zero because that implies
+  // that an equality check was actually intended.
+  if (!(std::isnan)(val1) && !(std::isnan)(val2) && abs_error > 0 &&
+      abs_error < epsilon) {
+    return AssertionFailure()
+           << "The difference between " << expr1 << " and " << expr2 << " is "
+           << diff << ", where\n"
+           << expr1 << " evaluates to " << val1 << ",\n"
+           << expr2 << " evaluates to " << val2 << ".\nThe abs_error parameter "
+           << abs_error_expr << " evaluates to " << abs_error
+           << " which is smaller than the minimum distance between doubles for "
+              "numbers of this magnitude which is "
+           << epsilon
+           << ", thus making this EXPECT_NEAR check equivalent to "
+              "EXPECT_EQUAL. Consider using EXPECT_DOUBLE_EQ instead.";
+  }
   return AssertionFailure()
       << "The difference between " << expr1 << " and " << expr2
       << " is " << diff << ", which exceeds " << abs_error_expr << ", where\n"
@@ -2141,8 +2127,13 @@ bool String::EndsWithCaseInsensitive(
 
 // Formats an int value as "%02d".
 std::string String::FormatIntWidth2(int value) {
+  return FormatIntWidthN(value, 2);
+}
+
+// Formats an int value to given width with leading zeros.
+std::string String::FormatIntWidthN(int value, int width) {
   std::stringstream ss;
-  ss << std::setfill('0') << std::setw(2) << value;
+  ss << std::setfill('0') << std::setw(width) << value;
   return ss.str();
 }
 
@@ -2194,7 +2185,9 @@ std::string AppendUserMessage(const std::string& gtest_msg,
   if (user_msg_string.empty()) {
     return gtest_msg;
   }
-
+  if (gtest_msg.empty()) {
+    return user_msg_string;
+  }
   return gtest_msg + "\n" + user_msg_string;
 }
 
@@ -2273,7 +2266,8 @@ static const char* const kReservedTestSuitesAttributes[] = {
 // The list of reserved attributes used in the <testsuite> element of XML
 // output.
 static const char* const kReservedTestSuiteAttributes[] = {
-    "disabled", "errors", "failures", "name", "tests", "time", "timestamp"};
+    "disabled", "errors", "failures",  "name",
+    "tests",    "time",   "timestamp", "skipped"};
 
 // The list of reserved attributes used in the <testcase> element of XML output.
 static const char* const kReservedTestCaseAttributes[] = {
@@ -2730,6 +2724,7 @@ TestInfo::TestInfo(const std::string& a_test_suite_name,
       should_run_(false),
       is_disabled_(false),
       matches_filter_(false),
+      is_in_another_shard_(false),
       factory_(factory),
       result_() {}
 
@@ -2743,7 +2738,7 @@ namespace internal {
 //
 // Arguments:
 //
-//   test_suite_name:   name of the test suite
+//   test_suite_name:  name of the test suite
 //   name:             name of the test
 //   type_param:       the name of the test's type parameter, or NULL if
 //                     this is not a typed or a type-parameterized test.
@@ -2949,7 +2944,7 @@ int TestSuite::total_test_count() const {
 //
 // Arguments:
 //
-//   name:         name of the test suite
+//   a_name:       name of the test suite
 //   a_type_param: the name of the test suite's type parameter, or NULL if
 //                 this is not a typed or a type-parameterized test suite.
 //   set_up_tc:    pointer to the function that sets up the test suite
@@ -3004,9 +2999,9 @@ void TestSuite::Run() {
   // Call both legacy and the new API
   repeater->OnTestSuiteStart(*this);
 //  Legacy API is deprecated but still available
-#ifndef GTEST_REMOVE_LEGACY_TEST_CASEAPI
+#ifndef GTEST_REMOVE_LEGACY_TEST_CASEAPI_
   repeater->OnTestCaseStart(*this);
-#endif  //  GTEST_REMOVE_LEGACY_TEST_CASEAPI
+#endif  //  GTEST_REMOVE_LEGACY_TEST_CASEAPI_
 
   impl->os_stack_trace_getter()->UponLeavingGTest();
   internal::HandleExceptionsInMethodIfSupported(
@@ -3031,9 +3026,9 @@ void TestSuite::Run() {
   // Call both legacy and the new API
   repeater->OnTestSuiteEnd(*this);
 //  Legacy API is deprecated but still available
-#ifndef GTEST_REMOVE_LEGACY_TEST_CASEAPI
+#ifndef GTEST_REMOVE_LEGACY_TEST_CASEAPI_
   repeater->OnTestCaseEnd(*this);
-#endif  //  GTEST_REMOVE_LEGACY_TEST_CASEAPI
+#endif  //  GTEST_REMOVE_LEGACY_TEST_CASEAPI_
 
   impl->set_current_test_suite(nullptr);
 }
@@ -3050,9 +3045,9 @@ void TestSuite::Skip() {
   // Call both legacy and the new API
   repeater->OnTestSuiteStart(*this);
 //  Legacy API is deprecated but still available
-#ifndef GTEST_REMOVE_LEGACY_TEST_CASEAPI
+#ifndef GTEST_REMOVE_LEGACY_TEST_CASEAPI_
   repeater->OnTestCaseStart(*this);
-#endif  //  GTEST_REMOVE_LEGACY_TEST_CASEAPI
+#endif  //  GTEST_REMOVE_LEGACY_TEST_CASEAPI_
 
   for (int i = 0; i < total_test_count(); i++) {
     GetMutableTestInfo(i)->Skip();
@@ -3061,9 +3056,9 @@ void TestSuite::Skip() {
   // Call both legacy and the new API
   repeater->OnTestSuiteEnd(*this);
   // Legacy API is deprecated but still available
-#ifndef GTEST_REMOVE_LEGACY_TEST_CASEAPI
+#ifndef GTEST_REMOVE_LEGACY_TEST_CASEAPI_
   repeater->OnTestCaseEnd(*this);
-#endif  //  GTEST_REMOVE_LEGACY_TEST_CASEAPI
+#endif  //  GTEST_REMOVE_LEGACY_TEST_CASEAPI_
 
   impl->set_current_test_suite(nullptr);
 }
@@ -3115,7 +3110,7 @@ static std::string FormatTestSuiteCount(int test_suite_count) {
 static const char * TestPartResultTypeToString(TestPartResult::Type type) {
   switch (type) {
     case TestPartResult::kSkip:
-      return "Skipped";
+      return "Skipped\n";
     case TestPartResult::kSuccess:
       return "Success";
 
@@ -3274,7 +3269,7 @@ bool ShouldUseColor(bool stdout_is_tty) {
 // This routine must actually emit the characters rather than return a string
 // that would be colored when printed, as can be done on Linux.
 
-void ColoredPrintf(GTestColor color, const char* fmt, ...) {
+static void ColoredPrintf(GTestColor color, const char* fmt, ...) {
   va_list args;
   va_start(args, fmt);
 
@@ -4098,13 +4093,14 @@ std::string FormatEpochTimeInMillisAsIso8601(TimeInMillis ms) {
   struct tm time_struct;
   if (!PortableLocaltime(static_cast<time_t>(ms / 1000), &time_struct))
     return "";
-  // YYYY-MM-DDThh:mm:ss
+  // YYYY-MM-DDThh:mm:ss.sss
   return StreamableToString(time_struct.tm_year + 1900) + "-" +
       String::FormatIntWidth2(time_struct.tm_mon + 1) + "-" +
       String::FormatIntWidth2(time_struct.tm_mday) + "T" +
       String::FormatIntWidth2(time_struct.tm_hour) + ":" +
       String::FormatIntWidth2(time_struct.tm_min) + ":" +
-      String::FormatIntWidth2(time_struct.tm_sec);
+      String::FormatIntWidth2(time_struct.tm_sec) + "." +
+      String::FormatIntWidthN(static_cast<int>(ms % 1000), 3);
 }
 
 // Streams an XML CDATA section, escaping invalid CDATA sequences as needed.
@@ -4187,10 +4183,11 @@ void XmlUnitTestResultPrinter::OutputXmlTestInfo(::std::ostream* stream,
   OutputXmlAttribute(stream, kTestsuite, "classname", test_suite_name);
 
   int failures = 0;
+  int skips = 0;
   for (int i = 0; i < result.total_part_count(); ++i) {
     const TestPartResult& part = result.GetTestPartResult(i);
     if (part.failed()) {
-      if (++failures == 1) {
+      if (++failures == 1 && skips == 0) {
         *stream << ">\n";
       }
       const std::string location =
@@ -4203,13 +4200,26 @@ void XmlUnitTestResultPrinter::OutputXmlTestInfo(::std::ostream* stream,
       const std::string detail = location + "\n" + part.message();
       OutputXmlCDataSection(stream, RemoveInvalidXmlCharacters(detail).c_str());
       *stream << "</failure>\n";
+    } else if (part.skipped()) {
+      if (++skips == 1 && failures == 0) {
+        *stream << ">\n";
+      }
+      const std::string location =
+          internal::FormatCompilerIndependentFileLocation(part.file_name(),
+                                                          part.line_number());
+      const std::string summary = location + "\n" + part.summary();
+      *stream << "      <skipped message=\""
+              << EscapeXmlAttribute(summary.c_str()) << "\">";
+      const std::string detail = location + "\n" + part.message();
+      OutputXmlCDataSection(stream, RemoveInvalidXmlCharacters(detail).c_str());
+      *stream << "</skipped>\n";
     }
   }
 
-  if (failures == 0 && result.test_property_count() == 0) {
+  if (failures == 0 && skips == 0 && result.test_property_count() == 0) {
     *stream << " />\n";
   } else {
-    if (failures == 0) {
+    if (failures == 0 && skips == 0) {
       *stream << ">\n";
     }
     OutputXmlTestProperties(stream, result);
@@ -4231,7 +4241,11 @@ void XmlUnitTestResultPrinter::PrintXmlTestSuite(std::ostream* stream,
     OutputXmlAttribute(
         stream, kTestsuite, "disabled",
         StreamableToString(test_suite.reportable_disabled_test_count()));
+    OutputXmlAttribute(stream, kTestsuite, "skipped",
+                       StreamableToString(test_suite.skipped_test_count()));
+
     OutputXmlAttribute(stream, kTestsuite, "errors", "0");
+
     OutputXmlAttribute(stream, kTestsuite, "time",
                        FormatTimeInMillisAsSeconds(test_suite.elapsed_time()));
     OutputXmlAttribute(
@@ -5545,10 +5559,10 @@ class TestSuiteNameIs {
 // Arguments:
 //
 //   test_suite_name: name of the test suite
-//   type_param:     the name of the test suite's type parameter, or NULL if
-//                   this is not a typed or a type-parameterized test suite.
-//   set_up_tc:      pointer to the function that sets up the test suite
-//   tear_down_tc:   pointer to the function that tears down the test suite
+//   type_param:      the name of the test suite's type parameter, or NULL if
+//                    this is not a typed or a type-parameterized test suite.
+//   set_up_tc:       pointer to the function that sets up the test suite
+//   tear_down_tc:    pointer to the function that tears down the test suite
 TestSuite* UnitTestImpl::GetTestSuite(
     const char* test_suite_name, const char* type_param,
     internal::SetUpTestSuiteFunc set_up_tc,
@@ -6261,7 +6275,7 @@ static const char kColorEncodedHelpMessage[] =
     "      List the names of all tests instead of running them. The name of\n"
     "      TEST(Foo, Bar) is \"Foo.Bar\".\n"
     "  @G--" GTEST_FLAG_PREFIX_
-    "filter=@YPOSTIVE_PATTERNS"
+    "filter=@YPOSITIVE_PATTERNS"
     "[@G-@YNEGATIVE_PATTERNS]@D\n"
     "      Run only the tests whose name matches one of the positive patterns "
     "but\n"
@@ -6540,24 +6554,31 @@ void InitGoogleTest() {
 std::string TempDir() {
 #if defined(GTEST_CUSTOM_TEMPDIR_FUNCTION_)
   return GTEST_CUSTOM_TEMPDIR_FUNCTION_();
-#endif
-
-#if GTEST_OS_WINDOWS_MOBILE
+#elif GTEST_OS_WINDOWS_MOBILE
   return "\\temp\\";
 #elif GTEST_OS_WINDOWS
   const char* temp_dir = internal::posix::GetEnv("TEMP");
-  if (temp_dir == nullptr || temp_dir[0] == '\0')
+  if (temp_dir == nullptr || temp_dir[0] == '\0') {
     return "\\temp\\";
-  else if (temp_dir[strlen(temp_dir) - 1] == '\\')
+  } else if (temp_dir[strlen(temp_dir) - 1] == '\\') {
     return temp_dir;
-  else
+  } else {
     return std::string(temp_dir) + "\\";
+  }
 #elif GTEST_OS_LINUX_ANDROID
   const char* temp_dir = internal::posix::GetEnv("TEST_TMPDIR");
-  if (temp_dir == nullptr || temp_dir[0] == '\0')
+  if (temp_dir == nullptr || temp_dir[0] == '\0') {
     return "/data/local/tmp/";
-  else
+  } else {
     return temp_dir;
+  }
+#elif GTEST_OS_LINUX
+  const char* temp_dir = internal::posix::GetEnv("TEST_TMPDIR");
+  if (temp_dir == nullptr || temp_dir[0] == '\0') {
+    return "/tmp/";
+  } else {
+    return temp_dir;
+  }
 #else
   return "/tmp/";
 #endif  // GTEST_OS_WINDOWS_MOBILE
