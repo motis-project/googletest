@@ -135,8 +135,10 @@ if(GTEST_HAS_ABSL)
     re2::re2
   )
 endif()
+target_compile_features(gtest PUBLIC cxx_std_17)
 cxx_library(gtest_main "${cxx_strict}" src/gtest_main.cc)
 set_target_properties(gtest_main PROPERTIES VERSION ${GOOGLETEST_VERSION})
+target_compile_features(gtest_main PUBLIC cxx_std_17)
 string(REPLACE ";" "$<SEMICOLON>" dirs "${gtest_build_include_dirs}")
 target_include_directories(gtest SYSTEM INTERFACE
   "$<BUILD_INTERFACE:${dirs}>"
